@@ -1,4 +1,4 @@
-use super::models::{AddonManifest, MetaDetail, MetaItem, StreamItem};
+use super::models::{AddonManifest, MetaDetail, MetaItem, StreamItem, SubtitleItem};
 use reqwest::Client;
 use std::time::Duration;
 
@@ -219,6 +219,43 @@ impl AddonClient {
         } else if raw.is_array() {
             serde_json::from_value(raw)
                 .map_err(|e| format!("Failed to parse raw stream array: {e}"))
+        } else {
+            Ok(Vec::new())
+        }
+    }
+
+    /// Fetch the subtitle tracks an addon offers for a title.
+    ///
+    /// Follows the Stremio addon protocol:
+    /// `{base}/subtitles/{type}/{id}.json`
+    pub async fn fetch_subtitles(
+        &self,
+        base_url: &str,
+        r#type: &str,
+        id: &str,
+    ) -> Result<Vec<SubtitleItem>, String> {
+        let endpoint = format!("{base_url}/subtitles/{type}/{id}.json");
+        let resp = self
+            .http
+            .get(&endpoint)
+            .send()
+            .await
+            .map_err(|e| format!("Subtitles request failed: {e}"))?;
+
+        if !resp.status().is_success() {
+            return Err(format!("Subtitles returned HTTP {}", resp.status()));
+        }
+
+        let mut raw: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| format!("Invalid subtitles response JSON: {e}"))?;
+
+        if let Some(val) = raw.get_mut("subtitles").map(serde_json::Value::take) {
+            serde_json::from_value(val).map_err(|e| format!("Failed to parse subtitles: {e}"))
+        } else if raw.is_array() {
+            serde_json::from_value(raw)
+                .map_err(|e| format!("Failed to parse raw subtitles array: {e}"))
         } else {
             Ok(Vec::new())
         }

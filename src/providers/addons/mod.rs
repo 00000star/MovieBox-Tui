@@ -7,9 +7,9 @@ pub use adapter::{
     meta_detail_to_media_details, meta_to_catalog_item, meta_to_search_result,
     release_to_playback_source, stream_item_to_release,
 };
-pub use aggregator::aggregate_streams;
+pub use aggregator::{aggregate_streams, aggregate_subtitles};
 pub use client::AddonClient;
-pub use models::{AddonManifest, InstalledAddon, MetaDetail, MetaItem, StreamItem};
+pub use models::{AddonManifest, InstalledAddon, MetaDetail, MetaItem, StreamItem, SubtitleItem};
 
 use crate::providers::models::{CatalogItem, MediaDetails, ProviderError, ProviderKind};
 use crate::providers::{Provider, ProviderCapabilities};

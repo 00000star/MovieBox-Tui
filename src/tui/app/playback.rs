@@ -963,8 +963,23 @@ impl App {
                     };
                     let subject_id = self.state.active_subject_id.clone().unwrap_or_default();
                     let resource_id = self.get_selected_resource_id();
+                    let season = self.state.selected_season;
+                    let episode = self.state.selected_episode;
+                    let is_series = self
+                        .state
+                        .selected_details
+                        .as_ref()
+                        .map(|d| d.is_series())
+                        .unwrap_or(season > 0 || episode > 0);
 
-                    if let Some(rid) = resource_id {
+                    // Addons are an independent subtitle source, so resolve
+                    // them even when there is no MovieBox resource id (which
+                    // is the normal case for addon-sourced titles).
+                    let addons = self.state.installed_addons.clone();
+                    let has_addon_subtitles =
+                        addons.iter().any(|a| a.enabled && a.provides_subtitles);
+
+                    if resource_id.is_some() || has_addon_subtitles {
                         self.state.notify(
                             NotificationKind::Info,
                             "Preparing playback",
@@ -980,35 +995,38 @@ impl App {
                             .as_ref()
                             .map(|d| d.sibling_ids())
                             .unwrap_or_default();
-                        let season = self.state.selected_season;
-                        let episode = self.state.selected_episode;
                         self.request_tasks.spawn_playback_resolve(async move {
                             let result = tokio::time::timeout(
                                 std::time::Duration::from_secs(15),
-                                service.get_ext_captions(
+                                service.resolve_subtitles(
                                     &subject_id,
-                                    &rid,
+                                    resource_id.as_deref(),
                                     &sibling_ids,
                                     season,
                                     episode,
+                                    is_series,
+                                    &addons,
                                 ),
                             )
                             .await;
                             match result {
-                                Ok(Ok(res)) => {
+                                Ok(Ok(res)) if !res.is_empty() => {
                                     sender
                                         .send(Action::ShowSubtitlePopup(source_clone.url, res))
                                         .ok();
                                 }
+                                Ok(Ok(_)) => {
+                                    sender.send(Action::DispatchPlayback(source_clone)).ok();
+                                }
                                 Err(_) => {
                                     log::warn!(
-                                        "[playback] Subtitle resolution timed out after 15s for rid={rid}"
+                                        "[playback] Subtitle resolution timed out after 15s"
                                     );
                                     sender.send(Action::DispatchPlayback(source_clone)).ok();
                                 }
                                 Ok(Err(err)) => {
                                     log::warn!(
-                                        "[playback] Subtitle resolution failed for rid={rid}: {err}"
+                                        "[playback] Subtitle resolution failed: {err}"
                                     );
                                     sender.send(Action::DispatchPlayback(source_clone)).ok();
                                 }

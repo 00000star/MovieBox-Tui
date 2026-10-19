@@ -310,6 +310,92 @@ impl MovieBoxService {
             }
         }
     }
+
+    /// Fetch subtitle tracks from every enabled addon that provides them.
+    ///
+    /// Independent of the MovieBox provider, so this also works for
+    /// addon-sourced titles, where no MovieBox resource id exists.
+    pub async fn get_addon_subtitles(
+        &self,
+        addons: &[crate::providers::addons::models::InstalledAddon],
+        subject_id: &str,
+        season: usize,
+        episode: usize,
+        is_series: bool,
+    ) -> Vec<crate::providers::models::SubtitleOption> {
+        if subject_id.trim().is_empty() || addons.is_empty() {
+            return Vec::new();
+        }
+        crate::providers::addons::aggregate_subtitles(
+            &self.addon_client,
+            addons,
+            subject_id,
+            season,
+            episode,
+            is_series,
+        )
+        .await
+    }
+
+    /// Resolve every subtitle track available for a title.
+    ///
+    /// Merges MovieBox captions (when a resource id is present) with
+    /// subtitles offered by installed addons, dropping duplicates by URL and
+    /// then by language. English always sorts first.
+    pub async fn resolve_subtitles(
+        &self,
+        subject_id: &str,
+        resource_id: Option<&str>,
+        sibling_ids: &[String],
+        season: usize,
+        episode: usize,
+        is_series: bool,
+        addons: &[crate::providers::addons::models::InstalledAddon],
+    ) -> Result<Vec<crate::providers::models::SubtitleOption>, String> {
+        let addon_fut = self.get_addon_subtitles(addons, subject_id, season, episode, is_series);
+        let moviebox_fut = async {
+            match resource_id.filter(|rid| !rid.is_empty()) {
+                Some(rid) => self
+                    .get_ext_captions(subject_id, rid, sibling_ids, season, episode)
+                    .await
+                    .unwrap_or_default(),
+                None => Vec::new(),
+            }
+        };
+
+        let (addon_subs, moviebox_subs) = tokio::join!(addon_fut, moviebox_fut);
+
+        // MovieBox captions are added first: they are already ordered
+        // English-first and are usually better synchronised to the source.
+        let mut merged = Vec::new();
+        let mut seen_urls = std::collections::HashSet::new();
+        Self::append_unique_captions(&mut merged, &mut seen_urls, moviebox_subs);
+        Self::append_unique_captions(&mut merged, &mut seen_urls, addon_subs);
+
+        let mut seen_languages = std::collections::HashSet::new();
+        let mut deduplicated = Vec::new();
+        for sub in merged {
+            let language = crate::tui::text::sanitize_language_label(&sub.name);
+            if seen_languages.insert(language) {
+                deduplicated.push(sub);
+            }
+        }
+
+        deduplicated.sort_by(|a, b| {
+            let clean_a = crate::tui::text::sanitize_language_label(&a.name);
+            let clean_b = crate::tui::text::sanitize_language_label(&b.name);
+            if clean_a.eq_ignore_ascii_case("english") {
+                std::cmp::Ordering::Less
+            } else if clean_b.eq_ignore_ascii_case("english") {
+                std::cmp::Ordering::Greater
+            } else {
+                clean_a.cmp(&clean_b)
+            }
+        });
+
+        Ok(deduplicated)
+    }
+
     pub async fn fetch_poster_bytes(&self, url: &str) -> Option<Vec<u8>> {
         const MAX_POSTER_BYTES: usize = 5 * 1024 * 1024;
         let mut response = self

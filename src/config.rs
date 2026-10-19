@@ -307,6 +307,23 @@ pub fn load_addons() -> Vec<InstalledAddon> {
         Vec::new()
     };
 
+    // Addon configs written before the `subtitles` resource was supported do
+    // not carry `provides_subtitles`. Re-derive it from the cached manifest so
+    // existing installs gain addon subtitles without being removed and
+    // re-added. Cheap: the manifest is already on disk.
+    let mut backfilled_subtitles = false;
+    for a in &mut list {
+        if !a.provides_subtitles
+            && let Some(manifest) = crate::cache::get_addon_manifest_cache_typed(&a.manifest_url)
+        {
+            a.provides_subtitles = manifest.provides_subtitles();
+            backfilled_subtitles |= a.provides_subtitles;
+        }
+    }
+    if backfilled_subtitles {
+        save_addons(&list);
+    }
+
     if !list.iter().any(|a| a.is_core()) {
         list.insert(0, InstalledAddon::cinemeta_default());
         save_addons(&list);

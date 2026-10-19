@@ -1,7 +1,7 @@
 use super::adapter::stream_item_to_release;
 use super::client::AddonClient;
 use super::models::InstalledAddon;
-use crate::providers::models::Release;
+use crate::providers::models::{Release, SubtitleOption};
 
 pub async fn aggregate_streams(
     client: &AddonClient,
@@ -129,6 +129,89 @@ pub async fn aggregate_streams(
     (deduplicated, blocked_addons)
 }
 
+/// Collect subtitle tracks from every enabled addon that advertises the
+/// `subtitles` resource.
+///
+/// Addons are queried in parallel with a per-addon timeout, so a slow or
+/// dead subtitle provider can never block playback. Duplicate URLs are
+/// dropped, keeping the first (highest-priority) provider's copy.
+pub async fn aggregate_subtitles(
+    client: &AddonClient,
+    addons: &[InstalledAddon],
+    subject_id: &str,
+    season: usize,
+    episode: usize,
+    is_series: bool,
+) -> Vec<SubtitleOption> {
+    let subtitle_addons: Vec<&InstalledAddon> = addons
+        .iter()
+        .filter(|a| a.enabled && a.provides_subtitles)
+        .collect();
+
+    if subtitle_addons.is_empty() {
+        return Vec::new();
+    }
+
+    let clean_id = subject_id.split(':').next_back().unwrap_or(subject_id);
+    let media_type = if is_series { "series" } else { "movie" };
+    let subtitle_id = if is_series && episode > 0 {
+        format!("{clean_id}:{season}:{episode}")
+    } else {
+        clean_id.to_string()
+    };
+
+    let mut tasks = Vec::new();
+    for addon in subtitle_addons {
+        let base_url = AddonClient::base_addon_url(&addon.manifest_url);
+        let addon_name = addon.name.clone();
+        let client_clone = client.clone();
+        let id_clone = subtitle_id.clone();
+        let m_type = media_type.to_string();
+
+        tasks.push(async move {
+            let res = tokio::time::timeout(
+                std::time::Duration::from_millis(5000),
+                client_clone.fetch_subtitles(&base_url, &m_type, &id_clone),
+            )
+            .await;
+
+            match res {
+                Ok(Ok(items)) => items
+                    .into_iter()
+                    .filter_map(|item| {
+                        let name = item.display_name();
+                        let url = item.url?;
+                        if url.trim().is_empty() {
+                            return None;
+                        }
+                        Some(SubtitleOption { name, url })
+                    })
+                    .collect::<Vec<SubtitleOption>>(),
+                Ok(Err(err)) => {
+                    log::warn!("addon {addon_name} failed to fetch subtitles: {err}");
+                    Vec::new()
+                }
+                Err(_) => {
+                    log::warn!("addon {addon_name} timed out fetching subtitles");
+                    Vec::new()
+                }
+            }
+        });
+    }
+
+    let results = futures::future::join_all(tasks).await;
+    let mut seen_urls = std::collections::HashSet::new();
+    let mut options = Vec::new();
+    for subs in results {
+        for sub in subs {
+            if seen_urls.insert(sub.url.clone()) {
+                options.push(sub);
+            }
+        }
+    }
+    options
+}
+
 fn quality_score(quality: Option<&str>) -> u32 {
     match quality {
         Some("2160p") => 40,
@@ -193,6 +276,7 @@ mod tests {
                 provides_catalog: false,
                 provides_meta: false,
                 provides_stream: true,
+                provides_subtitles: false,
                 id_prefixes: vec![],
                 types: vec!["movie".to_string()],
             },
@@ -205,6 +289,7 @@ mod tests {
                 provides_catalog: false,
                 provides_meta: false,
                 provides_stream: true,
+                provides_subtitles: false,
                 id_prefixes: vec![],
                 types: vec!["movie".to_string()],
             },
@@ -217,5 +302,71 @@ mod tests {
         assert_eq!(releases.len(), 2);
         assert_eq!(releases[0].quality.as_deref(), Some("2160p"));
         assert_eq!(releases[1].quality.as_deref(), Some("720p"));
+    }
+
+    #[tokio::test]
+    async fn test_aggregate_subtitles_parses_labels_and_drops_duplicate_urls() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            if let Ok((mut stream, _)) = listener.accept().await {
+                let mut buf = [0u8; 1024];
+                let _ = stream.read(&mut buf).await;
+                let body = r#"{"subtitles":[
+                    {"id":"1","url":"https://subs.example.com/en.srt","lang":"eng"},
+                    {"id":"2","url":"https://subs.example.com/ko.srt","lang":"kor"},
+                    {"id":"3","url":"https://subs.example.com/en.srt","lang":"English"}
+                ]}"#;
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = stream.write_all(resp.as_bytes()).await;
+            }
+        });
+
+        let addons = vec![InstalledAddon {
+            manifest_url: format!("http://{addr}/manifest.json"),
+            name: "Subs Addon".to_string(),
+            version: Some("1.0.0".to_string()),
+            description: None,
+            enabled: true,
+            provides_catalog: false,
+            provides_meta: false,
+            provides_stream: false,
+            provides_subtitles: true,
+            id_prefixes: vec!["tt".to_string()],
+            types: vec!["movie".to_string()],
+        }];
+
+        let client = AddonClient::new();
+        let subs = aggregate_subtitles(&client, &addons, "tt1234567", 0, 0, false).await;
+
+        assert_eq!(subs.len(), 2, "duplicate subtitle URL must be dropped");
+        assert_eq!(subs[0].name, "eng");
+        assert_eq!(subs[0].url, "https://subs.example.com/en.srt");
+        assert_eq!(subs[1].name, "kor");
+    }
+
+    #[tokio::test]
+    async fn test_aggregate_subtitles_skips_addons_without_the_resource() {
+        let addons = vec![InstalledAddon {
+            manifest_url: "http://127.0.0.1:1/manifest.json".to_string(),
+            name: "No Subs".to_string(),
+            version: None,
+            description: None,
+            enabled: true,
+            provides_catalog: true,
+            provides_meta: true,
+            provides_stream: true,
+            provides_subtitles: false,
+            id_prefixes: vec![],
+            types: vec![],
+        }];
+
+        let client = AddonClient::new();
+        let subs = aggregate_subtitles(&client, &addons, "tt1234567", 0, 0, false).await;
+        assert!(subs.is_empty());
     }
 }

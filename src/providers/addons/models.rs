@@ -69,6 +69,10 @@ impl AddonManifest {
         self.provides_resource("stream")
     }
 
+    pub fn provides_subtitles(&self) -> bool {
+        self.provides_resource("subtitles")
+    }
+
     pub fn provides_meta(&self) -> bool {
         self.provides_resource("meta")
     }
@@ -421,6 +425,42 @@ pub struct StreamItem {
     pub behavior_hints: Option<StreamBehaviorHints>,
 }
 
+/// A single subtitle track from an addon's `subtitles` resource.
+///
+/// Addons vary in which field carries the human label, so every commonly
+/// used one is captured here.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct SubtitleItem {
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub lang: Option<String>,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+}
+
+impl SubtitleItem {
+    /// Best available human-readable label for this track.
+    ///
+    /// Prefers an explicit `label`/`title`, falling back to the `lang`
+    /// code. Callers normalise the result, so `eng` becomes `English`.
+    pub fn display_name(&self) -> String {
+        for candidate in [self.label.as_ref(), self.title.as_ref(), self.lang.as_ref()] {
+            if let Some(value) = candidate {
+                let trimmed = value.trim();
+                if !trimmed.is_empty() {
+                    return trimmed.to_string();
+                }
+            }
+        }
+        "Unknown".to_string()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct InstalledAddon {
     pub manifest_url: String,
@@ -434,6 +474,8 @@ pub struct InstalledAddon {
     pub provides_meta: bool,
     #[serde(default)]
     pub provides_stream: bool,
+    #[serde(default)]
+    pub provides_subtitles: bool,
     #[serde(default)]
     pub id_prefixes: Vec<String>,
     #[serde(default)]
@@ -453,6 +495,7 @@ impl InstalledAddon {
             provides_catalog: true,
             provides_meta: true,
             provides_stream: false,
+            provides_subtitles: false,
             id_prefixes: vec!["tt".to_string()],
             types: vec!["movie".to_string(), "series".to_string()],
         }
@@ -473,6 +516,7 @@ impl InstalledAddon {
             provides_catalog: manifest.provides_catalog(),
             provides_meta: manifest.provides_meta(),
             provides_stream: manifest.provides_stream(),
+            provides_subtitles: manifest.provides_subtitles(),
             id_prefixes: manifest.id_prefixes.clone(),
             types: manifest.types.clone(),
         }
