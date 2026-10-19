@@ -1025,9 +1025,7 @@ impl App {
                                     sender.send(Action::DispatchPlayback(source_clone)).ok();
                                 }
                                 Ok(Err(err)) => {
-                                    log::warn!(
-                                        "[playback] Subtitle resolution failed: {err}"
-                                    );
+                                    log::warn!("[playback] Subtitle resolution failed: {err}");
                                     sender.send(Action::DispatchPlayback(source_clone)).ok();
                                 }
                             }
