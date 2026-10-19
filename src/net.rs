@@ -9,6 +9,9 @@ use hickory_resolver::name_server::TokioConnectionProvider;
 use reqwest::dns::{Addrs, Name, Resolve, Resolving};
 
 const FALLBACK_DNS_PORT: u16 = 53;
+/// Upper bound for the platform resolver (`getaddrinfo`) escape hatch.
+/// Without it a wedged resolver could stall a request forever.
+const SYSTEM_DNS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 pub const DEFAULT_BROWSER_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 pub const APP_HTTP_USER_AGENT: &str = concat!("MovieBox-Tui/", env!("CARGO_PKG_VERSION"));
 
@@ -61,13 +64,36 @@ impl Resolve for FallbackResolver {
     fn resolve(&self, name: Name) -> Resolving {
         let resolver = Arc::clone(&GLOBAL_RESOLVER);
         Box::pin(async move {
-            let lookup = resolver.lookup_ip(name.as_str()).await?;
-            let addrs: Addrs = Box::new(
-                lookup
-                    .into_iter()
-                    .map(|address| SocketAddr::new(address, 0)),
-            );
-            Ok(addrs)
+            match resolver.lookup_ip(name.as_str()).await {
+                Ok(lookup) => {
+                    let addrs: Addrs = Box::new(
+                        lookup
+                            .into_iter()
+                            .map(|address| SocketAddr::new(address, 0)),
+                    );
+                    Ok(addrs)
+                }
+                Err(error) => {
+                    // Zero-config platforms (Termux in particular) have no
+                    // `/etc/resolv.conf` -- `/etc` is a read-only symlink to
+                    // `/system/etc` -- so `builder_tokio()` always fails and
+                    // hickory runs on hardcoded public DNS alone. Mobile
+                    // carriers frequently block or rate-limit that, which
+                    // surfaces as "error sending request". Fall back to the
+                    // platform resolver, which on Android goes through netd
+                    // and therefore uses the carrier's own DNS servers.
+                    log::debug!(
+                        "hickory lookup failed for {} ({error}); using system resolver",
+                        name.as_str()
+                    );
+                    let addrs = tokio::time::timeout(
+                        SYSTEM_DNS_TIMEOUT,
+                        tokio::net::lookup_host((name.as_str(), 0)),
+                    )
+                    .await??;
+                    Ok(Box::new(addrs) as Addrs)
+                }
+            }
         })
     }
 }
@@ -182,6 +208,20 @@ mod tests {
             resolver.options().ip_strategy,
             LookupIpStrategy::Ipv4AndIpv6
         );
+    }
+
+    #[tokio::test]
+    async fn system_resolver_escape_hatch_is_usable() {
+        // When hickory cannot answer (no `/etc/resolv.conf` on Termux, or
+        // public DNS blocked by a carrier) `FallbackResolver` defers to the
+        // platform resolver. Guard against that path rotting into dead code
+        // by proving `lookup_host` works here: "localhost" needs no network,
+        // it is served from the hosts file.
+        let addrs: Vec<_> = tokio::net::lookup_host(("localhost", 0))
+            .await
+            .expect("platform resolver must answer for localhost")
+            .collect();
+        assert!(!addrs.is_empty());
     }
 
     #[tokio::test]
