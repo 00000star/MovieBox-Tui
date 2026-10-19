@@ -86,12 +86,17 @@ impl Resolve for FallbackResolver {
                         "hickory lookup failed for {} ({error}); using system resolver",
                         name.as_str()
                     );
-                    let addrs = tokio::time::timeout(
+                    // Own the host string and collect into a Vec: the
+                    // platform lookup borrows its input, while the boxed
+                    // address iterator we return must be `'static`.
+                    let host = name.as_str().to_string();
+                    let resolved = tokio::time::timeout(
                         SYSTEM_DNS_TIMEOUT,
-                        tokio::net::lookup_host((name.as_str(), 0)),
+                        tokio::net::lookup_host((host.as_str(), 0)),
                     )
                     .await??;
-                    Ok(Box::new(addrs) as Addrs)
+                    let addrs: Addrs = Box::new(resolved.collect::<Vec<SocketAddr>>().into_iter());
+                    Ok(addrs)
                 }
             }
         })
