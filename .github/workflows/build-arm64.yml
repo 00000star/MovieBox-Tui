@@ -1,0 +1,82 @@
+name: Build ARM64
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "Cargo.toml"
+      - ".github/workflows/build-arm64.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  arm64:
+    name: aarch64-unknown-linux-musl
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.90.0
+          targets: aarch64-unknown-linux-musl
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "arm64-build"
+
+      - name: Install cross
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+
+      - name: Build
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: "-C link-arg=-Wl,-z,max-page-size=65536"
+        run: >
+          cross build --release --all-features
+          --target aarch64-unknown-linux-musl
+
+      - name: Install QEMU
+        run: sudo apt-get update && sudo apt-get install -y qemu-user-static
+
+      - name: Smoke test
+        run: target/aarch64-unknown-linux-musl/release/moviebox-tui --version
+
+      - name: Validate 64KB page alignment
+        run: |
+          BIN="target/aarch64-unknown-linux-musl/release/moviebox-tui"
+          python3 -c '
+          import subprocess, sys
+          out = subprocess.check_output(["readelf", "-lW", sys.argv[1]], text=True)
+          bad = 0
+          for line in out.splitlines():
+              if line.strip().startswith("LOAD"):
+                  align = int(line.split()[-1], 16)
+                  status = "ok" if align >= 65536 else "TOO SMALL"
+                  print(f"PT_LOAD align {hex(align)} {status}")
+                  if align < 65536:
+                      bad += 1
+          sys.exit(1 if bad else 0)
+          ' "$BIN"
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp target/aarch64-unknown-linux-musl/release/moviebox-tui dist/
+          cp README.md dist/ 2>/dev/null || true
+          cp LICENSE-* dist/ 2>/dev/null || true
+          tar -czf MovieBox_Linux_arm64.tar.gz -C dist .
+          ls -l MovieBox_Linux_arm64.tar.gz
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: moviebox-arm64
+          path: MovieBox_Linux_arm64.tar.gz
+          retention-days: 14
