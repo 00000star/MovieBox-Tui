@@ -194,6 +194,7 @@ impl App {
         state.auto_update = config.auto_update;
         state.last_update_check = config.last_update_check;
         state.moviebox_enabled = config.moviebox_enabled;
+        state.hidden_browse_languages = config.hidden_browse_languages.clone();
         state.fourkhdhub_enabled = config.fourkhdhub_enabled;
         state.dramachi_enabled = config.dramachi_enabled;
         state.bdix_circleftp_enabled = config.bdix_circleftp_enabled;
@@ -329,6 +330,7 @@ impl App {
             active_provider: self.state.active_provider,
             active_theme: self.state.active_theme_kind.clone(),
             moviebox_enabled: self.state.moviebox_enabled,
+            hidden_browse_languages: self.state.hidden_browse_languages.clone(),
             fourkhdhub_enabled: self.state.fourkhdhub_enabled,
             dramachi_enabled: self.state.dramachi_enabled,
             bdix_circleftp_enabled: self.state.bdix_circleftp_enabled,

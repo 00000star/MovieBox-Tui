@@ -21,12 +21,57 @@ pub struct Config {
     pub streaming_enabled: bool,
     pub tv_enabled: bool,
     pub addons_enabled: bool,
+    /// Language tags hidden from MovieBox browse/home rows, e.g. "hindi".
+    /// MovieBox tags regional releases inline ("Jailer 2 [Telugu]"), so this
+    /// keeps the feed to English + Asian titles by default.
+    /// An empty list disables filtering entirely.
+    #[serde(default = "default_hidden_browse_languages")]
+    pub hidden_browse_languages: Vec<String>,
     pub default_player: Option<String>,
     pub download_dir: Option<String>,
     pub vlc_path: Option<String>,
     pub mpv_path: Option<String>,
     pub iina_path: Option<String>,
 }
+/// Regional languages hidden from MovieBox browse and home rows by default.
+///
+/// MovieBox tags regional releases inline, e.g. `Jailer 2 [Telugu]`. Hiding
+/// these keeps the feed to English and Asian titles. Override by editing
+/// `hidden_browse_languages` in config.json; an empty list disables it.
+pub fn default_hidden_browse_languages() -> Vec<String> {
+    [
+        "hindi",
+        "telugu",
+        "tamil",
+        "malayalam",
+        "kannada",
+        "punjabi",
+        "bengali",
+        "bangla",
+        "marathi",
+        "gujarati",
+        "bhojpuri",
+        "urdu",
+        "nepali",
+        "sinhala",
+        "odia",
+        "oriya",
+        "assamese",
+        "rajasthani",
+        "haryanvi",
+        "maithili",
+        "konkani",
+        "sindhi",
+        "kashmiri",
+        "manipuri",
+        "tulu",
+        "chhattisgarhi",
+    ]
+    .iter()
+    .map(|tag| (*tag).to_string())
+    .collect()
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -44,6 +89,7 @@ impl Default for Config {
             streaming_enabled: true,
             tv_enabled: true,
             addons_enabled: false,
+            hidden_browse_languages: default_hidden_browse_languages(),
             default_player: None,
             download_dir: None,
             vlc_path: None,

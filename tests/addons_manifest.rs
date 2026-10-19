@@ -278,6 +278,7 @@ fn test_installed_addon_cinemeta_protection() {
     assert!(cinemeta.provides_catalog);
     assert!(cinemeta.provides_meta);
     assert!(!cinemeta.provides_stream);
+    assert!(!cinemeta.provides_subtitles);
 
     let community_addon = InstalledAddon {
         manifest_url: "https://addon.example.com/manifest.json".to_string(),
@@ -288,6 +289,7 @@ fn test_installed_addon_cinemeta_protection() {
         provides_catalog: false,
         provides_meta: false,
         provides_stream: true,
+        provides_subtitles: false,
         id_prefixes: vec!["tt".to_string()],
         types: vec!["movie".to_string(), "series".to_string()],
     };

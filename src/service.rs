@@ -177,7 +177,20 @@ impl MovieBoxService {
             .get_homepage(tab_id, page)
             .await
             .map_err(|e| e.to_string())?;
-        Ok(crate::providers::moviebox::adapt::moviebox_homepage_json_to_catalog(&payload))
+
+        // Browse rows are filtered down to the languages the user wants to
+        // see. Read on the blocking pool: config is a small on-disk file.
+        let hidden_languages =
+            tokio::task::spawn_blocking(|| crate::config::load().hidden_browse_languages)
+                .await
+                .unwrap_or_default();
+
+        Ok(
+            crate::providers::moviebox::adapt::moviebox_homepage_json_to_catalog(
+                &payload,
+                &hidden_languages,
+            ),
+        )
     }
 
     pub async fn fetch_collection_resolutions(&self, subject_id: &str) -> Result<Vec<u32>, String> {

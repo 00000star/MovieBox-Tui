@@ -298,6 +298,8 @@ pub struct AppState {
     pub overview_modal_title: String,
     pub overview_modal_content: String,
     pub basic_terminal: bool,
+    /// Language tags hidden from MovieBox browse/home rows.
+    pub hidden_browse_languages: Vec<String>,
     pub moviebox_enabled: bool,
     pub fourkhdhub_enabled: bool,
     pub dramachi_enabled: bool,
@@ -470,6 +472,7 @@ impl Default for AppState {
             overview_modal_scroll: 0,
             overview_modal_title: String::new(),
             overview_modal_content: String::new(),
+            hidden_browse_languages: crate::config::default_hidden_browse_languages(),
             moviebox_enabled: true,
             fourkhdhub_enabled: true,
             dramachi_enabled: true,

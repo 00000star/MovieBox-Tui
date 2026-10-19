@@ -157,8 +157,41 @@ pub fn moviebox_search_json_to_catalog(payload: &serde_json::Value) -> Vec<Catal
     items
 }
 
+/// True when a title carries a `[Language]` tag the user asked to hide.
+///
+/// MovieBox appends regional language tags to titles, e.g.
+/// `Jailer 2 [Telugu]` or `Toxic [Hindi][CAM]`. Matching is exact and
+/// case-insensitive, so untagged (usually English or Asian) titles are never
+/// hidden by accident. An empty `hidden` list disables the filter.
+pub fn title_tagged_with_hidden_language(title: &str, hidden: &[String]) -> bool {
+    if hidden.is_empty() {
+        return false;
+    }
+    let lower = title.to_ascii_lowercase();
+    let mut rest = lower.as_str();
+    while let Some(open) = rest.find('[') {
+        let after_open = &rest[open + 1..];
+        let Some(close) = after_open.find(']') else {
+            break;
+        };
+        for tag in after_open[..close].split(',') {
+            let tag = tag
+                .trim()
+                .trim_end_matches(" dubbed")
+                .trim_end_matches(" dub")
+                .trim();
+            if hidden.iter().any(|lang| lang.as_str() == tag) {
+                return true;
+            }
+        }
+        rest = &after_open[close + 1..];
+    }
+    false
+}
+
 pub fn moviebox_homepage_json_to_catalog(
     payload: &serde_json::Value,
+    hidden_languages: &[String],
 ) -> (
     Vec<CatalogItem>,
     std::collections::HashMap<String, crate::models::BrowseMetrics>,
@@ -205,6 +238,9 @@ pub fn moviebox_homepage_json_to_catalog(
 
             for (index, subject_val) in group_subjects.into_iter().enumerate() {
                 if let Some(catalog_item) = moviebox_subject_json_to_catalog_item(subject_val) {
+                    if title_tagged_with_hidden_language(&catalog_item.title, hidden_languages) {
+                        continue;
+                    }
                     let id = catalog_item.id.value.clone();
                     if seen_ids.insert(id.clone()) {
                         let mut metric = crate::service::extract_browse_metrics(subject_val);
