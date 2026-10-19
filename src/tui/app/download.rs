@@ -567,13 +567,24 @@ impl App {
                             );
                             return None;
                         };
+                        let size_hint = release
+                            .size_bytes
+                            .filter(|&bytes| bytes > 0)
+                            .map(|bytes| {
+                                format!(
+                                    " · {}",
+                                    crate::tui::text::format_file_size(bytes as f64)
+                                )
+                            })
+                            .unwrap_or_default();
                         self.state.notify(
                             NotificationKind::Info,
                             "Preparing download",
                             format!(
-                                "Resolving {} from {}...",
+                                "Resolving {} from {}{}...",
                                 first_mirror.label,
-                                release.provider.label()
+                                release.provider.label(),
+                                size_hint
                             ),
                         );
                         let client = if release.provider == ProviderKind::Addons
@@ -686,8 +697,18 @@ impl App {
             Action::DownloadEpisode => {
                 let subject_id = self.state.active_subject_id.clone().unwrap_or_default();
                 let resource_id = self.get_selected_resource_id();
+                let season = self.state.selected_season;
+                let episode = self.state.selected_episode;
+                let is_series = self
+                    .state
+                    .selected_details
+                    .as_ref()
+                    .map(|d| d.is_series())
+                    .unwrap_or(season > 0 || episode > 0);
+                let addons = self.state.installed_addons.clone();
+                let has_addon_subtitles = addons.iter().any(|a| a.enabled && a.provides_subtitles);
 
-                if let Some(rid) = resource_id {
+                if resource_id.is_some() || has_addon_subtitles {
                     self.state.notify(
                         NotificationKind::Info,
                         "Preparing download",
@@ -701,17 +722,22 @@ impl App {
                         .as_ref()
                         .map(|d| d.sibling_ids())
                         .unwrap_or_default();
-                    let season = self.state.selected_season;
-                    let episode = self.state.selected_episode;
                     self.request_tasks.spawn_playback_resolve(async move {
-                        if let Ok(res) = service
-                            .get_ext_captions(&subject_id, &rid, &sibling_ids, season, episode)
+                        match service
+                            .resolve_subtitles(crate::service::SubtitleRequest {
+                                subject_id: &subject_id,
+                                resource_id: resource_id.as_deref(),
+                                sibling_ids: &sibling_ids,
+                                season,
+                                episode,
+                                is_series,
+                                addons: &addons,
+                            })
                             .await
                         {
-                            sender.send(Action::ShowDownloadSubtitlePopup(res)).ok();
-                        } else {
-                            sender.send(Action::DownloadStream(None)).ok();
-                        }
+                            Ok(res) => sender.send(Action::ShowDownloadSubtitlePopup(res)).ok(),
+                            Err(_) => sender.send(Action::DownloadStream(None)).ok(),
+                        };
                     });
                 } else {
                     self.action_sender.send(Action::DownloadStream(None)).ok();

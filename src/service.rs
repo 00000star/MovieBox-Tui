@@ -9,6 +9,24 @@ use crate::providers::fourkhdhub::FourKHdHubClient;
 use crate::providers::models::{CatalogItem, MediaDetails, ProviderError, ProviderKind};
 use crate::providers::moviebox::client::MovieBoxClient;
 
+/// Everything needed to resolve subtitle tracks for a single title.
+///
+/// These fields always travel together through the playback and download
+/// paths, so they are grouped rather than passed positionally.
+pub struct SubtitleRequest<'a> {
+    /// MovieBox subject id, or the addon media id when the active provider
+    /// is [`ProviderKind::Addons`].
+    pub subject_id: &'a str,
+    /// MovieBox resource id, absent for addon-sourced titles.
+    pub resource_id: Option<&'a str>,
+    /// Related MovieBox subjects (dubs) to fall back to.
+    pub sibling_ids: &'a [String],
+    pub season: usize,
+    pub episode: usize,
+    pub is_series: bool,
+    pub addons: &'a [crate::providers::addons::models::InstalledAddon],
+}
+
 #[derive(Clone)]
 pub struct MovieBoxService {
     pub client: MovieBoxClient,
@@ -357,14 +375,18 @@ impl MovieBoxService {
     /// then by language. English always sorts first.
     pub async fn resolve_subtitles(
         &self,
-        subject_id: &str,
-        resource_id: Option<&str>,
-        sibling_ids: &[String],
-        season: usize,
-        episode: usize,
-        is_series: bool,
-        addons: &[crate::providers::addons::models::InstalledAddon],
+        request: SubtitleRequest<'_>,
     ) -> Result<Vec<crate::providers::models::SubtitleOption>, String> {
+        let SubtitleRequest {
+            subject_id,
+            resource_id,
+            sibling_ids,
+            season,
+            episode,
+            is_series,
+            addons,
+        } = request;
+
         let addon_fut = self.get_addon_subtitles(addons, subject_id, season, episode, is_series);
         let moviebox_fut = async {
             match resource_id.filter(|rid| !rid.is_empty()) {

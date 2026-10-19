@@ -449,12 +449,13 @@ impl SubtitleItem {
     /// Prefers an explicit `label`/`title`, falling back to the `lang`
     /// code. Callers normalise the result, so `eng` becomes `English`.
     pub fn display_name(&self) -> String {
-        for candidate in [self.label.as_ref(), self.title.as_ref(), self.lang.as_ref()] {
-            if let Some(value) = candidate {
-                let trimmed = value.trim();
-                if !trimmed.is_empty() {
-                    return trimmed.to_string();
-                }
+        for value in [self.label.as_ref(), self.title.as_ref(), self.lang.as_ref()]
+            .into_iter()
+            .flatten()
+        {
+            let trimmed = value.trim();
+            if !trimmed.is_empty() {
+                return trimmed.to_string();
             }
         }
         "Unknown".to_string()

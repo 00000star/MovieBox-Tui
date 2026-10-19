@@ -473,6 +473,17 @@ pub fn sanitize_language_label(name: &str) -> String {
     }
 }
 
+/// Index of the first entry whose label normalises to "English".
+///
+/// Playback and download pickers always list "None" first, so without this
+/// the default choice is no subtitles at all. Preselecting English means a
+/// download carries a readable track whenever one is available.
+pub fn first_english_option(options: &[(String, String)]) -> Option<usize> {
+    options
+        .iter()
+        .position(|(name, _)| sanitize_language_label(name).eq_ignore_ascii_case("english"))
+}
+
 pub fn format_subtitle_label(name: &str) -> String {
     if name == "None" {
         "No subtitles".to_string()

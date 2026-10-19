@@ -51,11 +51,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: "host-test"
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
       - name: Run test suite
         env:
           MOVIEBOX_CONFIG_DIR: ${{ runner.temp }}/mb_config
           MOVIEBOX_DATA_DIR: ${{ runner.temp }}/mb_data
-        run: cargo test --all-features
+        run: cargo nextest run --all-features
 
   clippy:
     name: cargo clippy
