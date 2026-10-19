@@ -571,10 +571,7 @@ impl App {
                             .size_bytes
                             .filter(|&bytes| bytes > 0)
                             .map(|bytes| {
-                                format!(
-                                    " · {}",
-                                    crate::tui::text::format_file_size(bytes as f64)
-                                )
+                                format!(" · {}", crate::tui::text::format_file_size(bytes as f64))
                             })
                             .unwrap_or_default();
                         self.state.notify(

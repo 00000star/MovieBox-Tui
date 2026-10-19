@@ -1048,8 +1048,8 @@ impl App {
                     self.state.is_download_subtitle_popup = false;
                     self.state.subtitle_popup = true;
                     self.state.subtitle_list = options;
-                    let english =
-                        crate::tui::text::first_english_option(&self.state.subtitle_list).unwrap_or(0);
+                    let english = crate::tui::text::first_english_option(&self.state.subtitle_list)
+                        .unwrap_or(0);
                     self.state.subtitle_list_state.select(Some(english));
                     self.state.pending_play_link = Some(link);
                 } else {
@@ -1082,8 +1082,8 @@ impl App {
                     self.state.subtitle_popup = false;
                     self.state.is_download_subtitle_popup = true;
                     self.state.subtitle_list = options;
-                    let english =
-                        crate::tui::text::first_english_option(&self.state.subtitle_list).unwrap_or(0);
+                    let english = crate::tui::text::first_english_option(&self.state.subtitle_list)
+                        .unwrap_or(0);
                     self.state.subtitle_list_state.select(Some(english));
                 } else {
                     self.action_sender.send(Action::DownloadStream(None)).ok();
